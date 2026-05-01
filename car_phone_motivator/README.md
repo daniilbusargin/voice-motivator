@@ -1,7 +1,7 @@
 # Car Phone Motivator — Voice AI Assistant MVP
 
 Телефонный голосовой ассистент-мотиватор для водителей.  
-Стек: **YandexGPT** (LLM) + **Yandex SpeechKit** (STT/TTS) + **МТС Exolve** (телефония) + **FastAPI** + **Docker**.
+Стек: **YandexGPT** (LLM) + **Yandex SpeechKit** (STT/TTS) + **Voximplant** (телефония) + **FastAPI** + **Docker**.
 
 ---
 
@@ -11,36 +11,37 @@
 Водитель (телефон)
       │  входящий звонок
       ▼
-  МТС Exolve
-  (телефонная платформа)
-      │  POST /call/webhook  {EventType: "OnCallStart"}
-      │  POST /call/webhook  {EventType: "OnRecordFinish", RecordURL: "..."}
+  Voximplant
+  VoxEngine JS (voximplant_scenario.js)
+      │  POST /call/webhook  {event: "call_started"} → greeting audio_url
+      │  POST /call/audio    {call_id, audio_url}    → answer audio_url
       ▼
   FastAPI Backend
   (Docker / Yandex Serverless Container)
       │
       ├─► Yandex SpeechKit STT  →  текст реплики
-      ├─► YandexGPT             →  текст ответа
+      ├─► YandexGPT             →  текст ответа (1–2 предложения)
       └─► Yandex SpeechKit TTS  →  аудио ответа (OGG/Opus)
-      │
-      └── возвращает Exolve команды: PlayAudio + StartRecord
 ```
 
 ### Call flow (chunk-based, без стриминга)
 
 ```
-1. Звонок → Exolve → POST /call/webhook (OnCallStart)
-   Backend: TTS(приветствие) → URL
-   Ответ: {Commands: [PlayAudio(url), StartRecord(10s)]}
+1. Звонок → Voximplant → VoxEngine отвечает
+   POST /call/webhook {event: "call_started"}
+   ← {audio_url: <приветствие>}
+   VoxEngine проигрывает приветствие, затем записывает реплику.
 
-2. Водитель говорит → Exolve записывает → POST /call/webhook (OnRecordFinish)
-   Backend: скачать запись → STT → LLM → TTS → URL
-   Ответ: {Commands: [PlayAudio(url), StartRecord(10s)]}
+2. Водитель говорит → запись завершается (тишина или таймаут)
+   POST /call/audio {call_id, audio_url}
+   Backend: скачать запись → STT → LLM → TTS → сохранить
+   ← {audio_url: <ответ>, recognized_text, answer_text}
+   VoxEngine проигрывает ответ, записывает следующую реплику.
 
-3. Цикл продолжается до завершения звонка.
+3. Цикл до завершения звонка (до 30 реплик).
 ```
 
-> Ожидаемая суммарная задержка на реплику: **3–6 секунд** (STT ~0.5s + LLM ~1–3s + TTS ~0.5s + сеть).
+> Ожидаемая задержка на реплику: **3–6 секунд** (STT ~0.5с + LLM ~1–3с + TTS ~0.5с + сеть).
 
 ---
 
@@ -50,17 +51,18 @@
 car_phone_motivator/
   app/
     __init__.py
-    config.py          # Конфигурация (pydantic-settings)
-    prompts.py         # System prompt + safety triggers
-    llm_yandex.py      # YandexGPT REST API
-    speech_yandex.py   # SpeechKit STT + TTS
-    telephony.py       # Модели и команды Exolve
-    logger.py          # Структурированное логирование метрик
-    main.py            # FastAPI: все endpoints
+    config.py              # Конфигурация (pydantic-settings)
+    prompts.py             # System prompt + safety triggers
+    llm_yandex.py          # YandexGPT REST API
+    speech_yandex.py       # SpeechKit STT + TTS
+    telephony.py           # Модели Voximplant webhook
+    logger.py              # Структурированное логирование метрик
+    main.py                # FastAPI: все endpoints
+  voximplant_scenario.js   # VoxEngine JS сценарий (загружать в Voximplant)
   Dockerfile
   requirements.txt
   .env.example
-  README.md  ← этот файл
+  README.md
 ```
 
 ---
@@ -72,90 +74,86 @@ car_phone_motivator/
 **Шаг 1. Зарегистрироваться и создать каталог**
 
 1. Зайти на [console.yandex.cloud](https://console.yandex.cloud).
-2. Если нет организации — создать её (бесплатно).
-3. Создать **Каталог** (Folder): любое имя, например `motivator`.
-4. Скопировать **ID каталога** — строка вида `b1g8s0abc123def456gh`.  
-   Это и есть `YANDEX_FOLDER_ID`.
+2. Создать **Каталог**: меню сверху → «Создать каталог», имя `motivator`.
+3. Скопировать **ID каталога** — строка вида `b1g8s0abc123def456gh`.
+   Это `YANDEX_FOLDER_ID`.
 
 **Шаг 2. Создать сервисный аккаунт**
 
-1. В каталоге → **IAM** → **Сервисные аккаунты** → **Создать**.
+1. Открыть каталог → левое меню → **IAM** → **Сервисные аккаунты** → **Создать**.
 2. Имя: `motivator-sa`.
-3. Назначить роли:
-   - `ai.languageModels.user` — для YandexGPT
-   - `ai.speechkit.stt` — для распознавания речи
-   - `ai.speechkit.tts` — для синтеза речи
+3. Назначить роли (поиск по названию):
+   - `ai.languageModels.user` — YandexGPT
+   - `ai.speechkit.stt` — распознавание речи
+   - `ai.speechkit.tts` — синтез речи
 4. Нажать **Создать**.
 
 **Шаг 3. Создать API-ключ**
 
-1. Открыть созданный сервисный аккаунт.
-2. Вкладка **API-ключи** → **Создать API-ключ**.
-3. Описание: `motivator-key`.
-4. Скопировать значение ключа (`AQVN...`) — **показывается только один раз**.  
-   Это и есть `YANDEX_API_KEY`.
+1. Открыть созданный сервисный аккаунт → вкладка **API-ключи**.
+2. Нажать **Создать API-ключ**, описание `motivator-key`.
+3. Скопировать значение ключа (`AQVN...`) — **показывается только один раз**.
+   Это `YANDEX_API_KEY`.
 
-**Итого:**
-```
-YANDEX_FOLDER_ID=b1g8s0abc123def456gh   # из шага 1
-YANDEX_API_KEY=AQVNxxxxxxxxxxxxxxxxxx   # из шага 3
+```bash
+# Итого в .env:
+YANDEX_FOLDER_ID=b1g8s0abc123def456gh
+YANDEX_API_KEY=AQVNxxxxxxxxxxxxxxxxxx
 ```
 
-> **Альтернатива для теста**: `yc iam create-token` → даёт IAM-токен на 12 ч (`YANDEX_IAM_TOKEN`).
+> **Альтернатива для быстрого теста**: `yc iam create-token` → IAM-токен на 12 ч (`YANDEX_IAM_TOKEN`).
 
 ---
 
-### 2. МТС Exolve: EXOLVE_API_KEY и EXOLVE_APP_ID
+### 2. Voximplant: регистрация, номер, webhook
 
 **Шаг 1. Зарегистрироваться**
 
-1. Зайти на [exolve.ru](https://exolve.ru).
-2. Нажать **Подключиться** → заполнить форму (email, телефон, компания).
-3. После подтверждения email войти в личный кабинет.
+1. Зайти на [voximplant.com](https://voximplant.com) → **Sign Up**.
+2. Указать email, страну — Россия, подтвердить почту.
+3. После входа откроется **Control Panel**.
 
-**Шаг 2. Пополнить баланс**
+**Шаг 2. Пополнить баланс и купить номер**
 
-Для покупки номера нужен положительный баланс.  
-Раздел **Финансы** → **Пополнить** (минимум ~300 ₽).
+1. **Numbers** → **Buy new phone number** → Страна: Russia.
+2. Выбрать номер, нажать **Buy** (~$1–2/мес.).
 
-**Шаг 3. Купить телефонный номер**
+**Шаг 3. Создать Application**
 
-1. Раздел **Номера** → **Подключить номер**.
-2. Выбрать регион (Москва / Федеральный 8-800).
-3. Подтвердить покупку (~от 30–100 ₽/мес.).
+1. **Applications** → **New Application**.
+2. Имя: `motivator`. Нажать **Create**.
 
-**Шаг 4. Создать приложение**
+**Шаг 4. Загрузить VoxEngine сценарий**
 
-1. Раздел **Приложения** → **Создать приложение**.
-2. Тип: **VoiceBot** (или "Голосовой бот").
-3. Имя: `motivator`.
-4. **Webhook URL** → вставить URL вашего backend + `/call/webhook`:  
-   `https://your-backend.example.com/call/webhook`
-5. Сохранить приложение.
-6. Скопировать **ID приложения** → `EXOLVE_APP_ID`.
+1. Открыть приложение `motivator` → вкладка **Scenarios**.
+2. Нажать **New scenario**, имя `motivator_scenario`.
+3. Вставить содержимое файла `voximplant_scenario.js`.
+4. В первой строке заменить `BACKEND_URL` на реальный URL backend:
+   ```js
+   var BACKEND_URL = "https://your-backend.example.com";
+   ```
+5. Нажать **Save**.
 
-**Шаг 5. Получить API-ключ**
+**Шаг 5. Создать Rule**
 
-1. Раздел **Настройки** → **API** → **Создать ключ**.
-2. Скопировать ключ → `EXOLVE_API_KEY`.
+1. Вкладка **Routing** → **Rules** → **New Rule**.
+2. Имя: `incoming`, Pattern: `.*` (все входящие).
+3. Прикрепить сценарий `motivator_scenario`.
+4. Нажать **Save**.
 
-**Шаг 6. Привязать номер к приложению**
+**Шаг 6. Привязать номер к Application**
 
-1. Раздел **Номера** → выбрать купленный номер.
-2. Привязать к приложению `motivator`.
+1. **Numbers** → выбрать купленный номер → **Assign to Application**.
+2. Выбрать приложение `motivator` → **Assign**.
 
-**Итого:**
-```
-EXOLVE_API_KEY=eyJhbGci...        # из шага 5
-EXOLVE_APP_ID=app-uuid-1234       # из шага 4
-```
+**Итого**: Voximplant не требует API-ключей в `.env` — всё управление  
+через VoxEngine JS, который сам обращается к нашему backend.
 
 ---
 
 ### 3. PUBLIC_BASE_URL
 
-Это публичный URL вашего backend — нужен, чтобы Exolve мог скачать  
-аудиофайлы ответов ассистента.
+Публичный URL backend нужен, чтобы Voximplant мог скачать TTS-аудиофайлы.
 
 - **Локальная разработка с ngrok:**
   ```bash
@@ -163,6 +161,8 @@ EXOLVE_APP_ID=app-uuid-1234       # из шага 4
   # скопировать https://xxxx.ngrok-free.app
   PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
   ```
+  И вписать тот же URL в `BACKEND_URL` в `voximplant_scenario.js`.
+
 - **Yandex Serverless Container:** URL выдаётся после деплоя (см. ниже).
 
 ---
@@ -172,7 +172,7 @@ EXOLVE_APP_ID=app-uuid-1234       # из шага 4
 ```bash
 cd car_phone_motivator
 cp .env.example .env
-# Заполнить YANDEX_API_KEY, YANDEX_FOLDER_ID, EXOLVE_API_KEY, EXOLVE_APP_ID
+# Заполнить YANDEX_API_KEY, YANDEX_FOLDER_ID
 
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
@@ -181,30 +181,21 @@ uvicorn app.main:app --reload --port 8000
 ### Тест LLM через /chat
 
 ```bash
-# Обычный запрос мотивации
+# Обычный запрос
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"text": "Застрял в пробке, уже час стою"}'
+  -d '{"text": "Застрял в пробке уже час, нет сил"}'
 
-# Проверка safety-триггера (должен дать рекомендацию остановиться)
+# Safety-триггер — должен дать рекомендацию остановиться
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"text": "Я очень устал и засыпаю за рулём"}'
+  -d '{"text": "Засыпаю за рулём, очень устал"}'
 ```
 
-Ожидаемый ответ:
-```json
-{
-  "call_id": "...",
-  "answer": "Пожалуйста, снизь скорость и держи дистанцию. При первой возможности безопасно остановись и отдохни.",
-  "latency_llm_ms": 0
-}
-```
-
-### Тест полного pipeline (STT → LLM → TTS)
+### Тест полного pipeline STT → LLM → TTS
 
 ```bash
-# Нужен OGG/Opus файл с голосом (можно записать через Audacity или arecord)
+# Нужен OGG/Opus файл с голосом (arecord, Audacity и т.п.)
 curl -X POST http://localhost:8000/call/audio \
   -F "call_id=test-001" \
   -F "audio_format=oggopus" \
@@ -212,16 +203,27 @@ curl -X POST http://localhost:8000/call/audio \
 # В ответе — audio_url с готовым аудиоответом
 ```
 
+### Тест webhook (симуляция Voximplant)
+
+```bash
+# Симулировать входящий звонок
+curl -X POST http://localhost:8000/call/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event": "call_started", "call_id": "test-call-1"}'
+# В ответе — audio_url приветствия
+```
+
 ---
 
 ## Docker
 
 ```bash
-# Сборка
 cd car_phone_motivator
+
+# Сборка
 docker build -t car-phone-motivator .
 
-# Запуск локально
+# Запуск
 docker run --env-file .env \
   -e PUBLIC_BASE_URL=http://localhost:8000 \
   -p 8000:8000 \
@@ -233,36 +235,32 @@ curl http://localhost:8000/health
 
 ---
 
-## Деплой в Yandex Cloud
+## Деплой в Yandex Cloud (Serverless Container)
 
 ### Предварительные требования
 
-Установить и настроить Yandex Cloud CLI:
 ```bash
-# Установка
+# Установить Yandex Cloud CLI
 curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
 source ~/.bashrc
 
-# Авторизация
+# Авторизоваться (выбрать аккаунт, организацию, каталог)
 yc init
-# Выбрать аккаунт, организацию и каталог (тот же YANDEX_FOLDER_ID)
 ```
 
 ---
 
-### Шаг 1: Container Registry — создать реестр и запушить образ
+### Шаг 1: Создать Container Registry и запушить образ
 
 ```bash
-# Создать реестр (один раз)
-yc container registry create --name motivator-registry --folder-id $YANDEX_FOLDER_ID
+# Создать реестр
+yc container registry create --name motivator-registry
 
 # Получить ID реестра
 REGISTRY_ID=$(yc container registry get --name motivator-registry \
-  --folder-id $YANDEX_FOLDER_ID --format json | jq -r .id)
+  --format json | jq -r .id)
 
-echo "Registry ID: $REGISTRY_ID"
-
-# Настроить Docker для авторизации через yc
+# Авторизовать Docker через yc
 yc container registry configure-docker
 
 # Собрать и запушить образ
@@ -275,15 +273,12 @@ docker push cr.yandex/$REGISTRY_ID/car-phone-motivator:latest
 ### Шаг 2: Сервисный аккаунт для контейнера
 
 ```bash
-# Создать SA для Serverless Container (если ещё не создан)
-yc iam service-account create \
-  --name motivator-container-sa \
-  --folder-id $YANDEX_FOLDER_ID
+yc iam service-account create --name motivator-container-sa
 
 SA_ID=$(yc iam service-account get --name motivator-container-sa \
-  --folder-id $YANDEX_FOLDER_ID --format json | jq -r .id)
+  --format json | jq -r .id)
 
-# Дать SA право тянуть образы из Registry
+# Дать право тянуть образы из Registry
 yc container registry add-access-binding \
   --name motivator-registry \
   --role container-registry.images.puller \
@@ -292,18 +287,15 @@ yc container registry add-access-binding \
 
 ---
 
-### Шаг 3: Создать Serverless Container
+### Шаг 3: Создать и задеплоить Serverless Container
 
 ```bash
 # Создать контейнер
-yc serverless container create \
-  --name car-phone-motivator \
-  --folder-id $YANDEX_FOLDER_ID
+yc serverless container create --name car-phone-motivator
 
-# Задеплоить ревизию (подставить реальные значения переменных)
+# Задеплоить первую ревизию (подставить реальные значения)
 yc serverless container revision deploy \
   --container-name car-phone-motivator \
-  --folder-id $YANDEX_FOLDER_ID \
   --image cr.yandex/$REGISTRY_ID/car-phone-motivator:latest \
   --service-account-id $SA_ID \
   --cores 1 \
@@ -312,95 +304,84 @@ yc serverless container revision deploy \
   --execution-timeout 30s \
   --environment YANDEX_API_KEY=<ваш_ключ> \
   --environment YANDEX_FOLDER_ID=<ваш_folder_id> \
-  --environment EXOLVE_API_KEY=<ваш_exolve_ключ> \
-  --environment EXOLVE_APP_ID=<ваш_exolve_app_id> \
   --environment SPEECHKIT_TTS_VOICE=filipp \
   --environment SPEECHKIT_TTS_SPEED=0.9 \
   --environment MAX_RECORD_SECONDS=10 \
   --environment SILENCE_TIMEOUT_SECONDS=2 \
   --environment PUBLIC_BASE_URL=https://PLACEHOLDER.containers.yandexcloud.net
 
-# Сделать контейнер публично доступным (без IAM-токена на входе)
+# Сделать контейнер публичным (без IAM на входе)
 yc serverless container allow-unauthenticated-invoke \
-  --name car-phone-motivator \
-  --folder-id $YANDEX_FOLDER_ID
+  --name car-phone-motivator
 
-# Получить публичный URL контейнера
+# Получить публичный URL
 CONTAINER_URL=$(yc serverless container get \
-  --name car-phone-motivator \
-  --folder-id $YANDEX_FOLDER_ID \
-  --format json | jq -r .url)
+  --name car-phone-motivator --format json | jq -r .url)
 
 echo "Container URL: $CONTAINER_URL"
 ```
 
-**Важно**: после получения `CONTAINER_URL` обновить переменную `PUBLIC_BASE_URL`  
-в ревизии контейнера:
+**После получения URL** — обновить `PUBLIC_BASE_URL` в ревизии:
+
 ```bash
 yc serverless container revision deploy \
   --container-name car-phone-motivator \
-  --folder-id $YANDEX_FOLDER_ID \
   --image cr.yandex/$REGISTRY_ID/car-phone-motivator:latest \
   --service-account-id $SA_ID \
   --cores 1 --memory 512MB --concurrency 8 --execution-timeout 30s \
-  --environment PUBLIC_BASE_URL=$CONTAINER_URL \
-  # ... остальные переменные те же
+  --environment YANDEX_API_KEY=<ваш_ключ> \
+  --environment YANDEX_FOLDER_ID=<ваш_folder_id> \
+  --environment SPEECHKIT_TTS_VOICE=filipp \
+  --environment SPEECHKIT_TTS_SPEED=0.9 \
+  --environment MAX_RECORD_SECONDS=10 \
+  --environment SILENCE_TIMEOUT_SECONDS=2 \
+  --environment PUBLIC_BASE_URL=$CONTAINER_URL
 ```
 
 ---
 
-### Шаг 4: Прописать webhook URL в Exolve
+### Шаг 4: Прописать URL в VoxEngine сценарии
 
-После получения `CONTAINER_URL`:
+После получения `CONTAINER_URL` открыть в Voximplant Dashboard  
+сценарий `motivator_scenario` и обновить первую строку:
 
-1. Зайти в [lk.exolve.ru](https://lk.exolve.ru) → **Приложения** → выбрать `motivator`.
-2. В поле **Webhook URL** указать:
-   ```
-   https://<CONTAINER_URL>/call/webhook
-   ```
-3. Сохранить.
-
-**Проверить деплой:**
-```bash
-curl https://$CONTAINER_URL/health
-# → {"status": "ok", "service": "car_phone_motivator"}
+```js
+var BACKEND_URL = "https://<CONTAINER_URL>";
 ```
+
+Сохранить сценарий. Позвонить на номер — ассистент ответит.
 
 ---
 
 ### Шаг 5: Обновление (при изменениях кода)
 
 ```bash
-# Пересобрать и запушить образ
 docker build -t cr.yandex/$REGISTRY_ID/car-phone-motivator:latest .
 docker push cr.yandex/$REGISTRY_ID/car-phone-motivator:latest
 
-# Задеплоить новую ревизию (команда из шага 3 повторяется)
-yc serverless container revision deploy \
-  --container-name car-phone-motivator \
-  ...
+# Повторить команду deploy из шага 3 с теми же параметрами
 ```
 
 ---
 
-## Настройка хранилища аудио для прода (Yandex Object Storage)
+## Хранилище аудио для прода (Yandex Object Storage)
 
-По умолчанию аудиофайлы хранятся в `/tmp/audio` внутри контейнера — они  
-теряются при перезапуске. Для прода нужен Yandex Object Storage:
+По умолчанию аудио хранится в `/tmp/audio` — теряется при рестарте контейнера.  
+Для прода нужен Yandex Object Storage:
 
 ```bash
 # Создать бакет
-yc storage bucket create --name motivator-audio --folder-id $YANDEX_FOLDER_ID
+yc storage bucket create --name motivator-audio
 
-# Дать SA права на запись
+# Дать SA права
 yc storage bucket update motivator-audio \
   --grants grant-type=GRANT_TYPE_ACCOUNT,permission=PERMISSION_FULL_CONTROL,grantee-id=$SA_ID
 ```
 
-Затем в `app/main.py` функцию `_save_audio()` заменить на загрузку в S3:
+Заменить `_save_audio()` в `app/main.py`:
 
 ```python
-import boto3, os
+import boto3, os, time
 
 s3 = boto3.client(
     "s3",
@@ -411,22 +392,14 @@ s3 = boto3.client(
 
 def _save_audio(call_id: str, tag: str, audio_bytes: bytes) -> str:
     key = f"audio/{call_id}_{tag}_{int(time.time())}.ogg"
-    s3.put_object(Bucket="motivator-audio", Key=key, Body=audio_bytes,
-                  ContentType="audio/ogg", ACL="public-read")
+    s3.put_object(
+        Bucket="motivator-audio", Key=key, Body=audio_bytes,
+        ContentType="audio/ogg", ACL="public-read",
+    )
     return f"https://storage.yandexcloud.net/motivator-audio/{key}"
 ```
 
 Добавить в `requirements.txt`: `boto3==1.34.0`
-
----
-
-## Тестовый сценарий звонка
-
-1. Позвонить на купленный Exolve номер.
-2. Услышать: *«Привет, я твой ассистент на дороге. Как ты сейчас?»*
-3. Сказать: *«Застрял в пробке, хочется всё бросить»* → услышать мотивирующую фразу.
-4. Сказать: *«Я устал и хочу спать»* → услышать рекомендацию остановиться.
-5. Положить трубку.
 
 ---
 
@@ -436,10 +409,20 @@ def _save_audio(call_id: str, tag: str, audio_bytes: bytes) -> str:
 |---|---|---|
 | GET | `/health` | Проверка сервиса |
 | POST | `/chat` | Тест LLM по тексту без звонка |
-| POST | `/call/webhook` | Exolve lifecycle events (основной endpoint) |
-| POST | `/call/audio` | Тест pipeline с аудиофайлом (curl/Postman) |
+| POST | `/call/webhook` | Voximplant lifecycle events |
+| POST | `/call/audio` | Запись реплики → ответное аудио |
 | POST | `/call/respond` | Готовый текст → TTS аудиоответ |
 | GET | `/audio/{filename}` | Отдача TTS-файлов (dev only) |
+
+---
+
+## Тестовый сценарий звонка
+
+1. Позвонить на купленный Voximplant номер.
+2. Услышать: *«Привет, я твой ассистент на дороге. Как ты сейчас?»*
+3. Сказать: *«Застрял в пробке, хочется всё бросить»* → мотивирующая фраза.
+4. Сказать: *«Я очень устал и засыпаю»* → рекомендация остановиться.
+5. Положить трубку.
 
 ---
 
@@ -450,6 +433,6 @@ def _save_audio(call_id: str, tag: str, audio_bytes: bytes) -> str:
 | 1 | Аудио в `/tmp` теряется при рестарте | Yandex Object Storage (см. выше) |
 | 2 | Задержка 3–6 с на реплику | Потоковый STT (SpeechKit WebSocket) |
 | 3 | Сессии в памяти (теряются при рестарте) | Yandex Managed Redis |
-| 4 | Нет верификации webhook-подписи | Включить `EXOLVE_WEBHOOK_SECRET` + HMAC |
-| 5 | SpeechKit отдаёт OGG, Exolve ждёт OGG — OK, но формат записи Exolve нужно уточнить | Проверить `audio_format` в документации Exolve |
-| 6 | `yandexgpt-lite` — быстрая, но менее умная модель | Сменить на `yandexgpt/latest` через `YANDEXGPT_MODEL_URI` |
+| 4 | Нет верификации подписи webhook | Включить `VOXIMPLANT_WEBHOOK_SECRET` + HMAC |
+| 5 | `yandexgpt-lite` быстрая, но менее умная | Сменить через `YANDEXGPT_MODEL_URI=gpt://.../yandexgpt/latest` |
+| 6 | VoxEngine хранит записи ограниченно | Настроить Voximplant Storage или сразу стримить аудио на backend |

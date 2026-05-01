@@ -16,11 +16,8 @@ class Settings(BaseSettings):
     speechkit_tts_speed: str = "0.9"
     speechkit_stt_lang: str = "ru-RU"
 
-    # МТС Exolve
-    exolve_api_key: str = ""          # API-ключ из личного кабинета Exolve
-    exolve_api_url: str = "https://api.exolve.ru"
-    exolve_app_id: str = ""           # ID приложения в Exolve
-    exolve_webhook_secret: str = ""   # опциональный HMAC-секрет
+    # Voximplant
+    voximplant_webhook_secret: str = ""  # optional HMAC secret for webhook verification
 
     # App
     app_env: str = "development"
@@ -42,10 +39,6 @@ class Settings(BaseSettings):
         if self.yandex_iam_token:
             return {"Authorization": f"Bearer {self.yandex_iam_token}"}
         raise ValueError("Neither YANDEX_API_KEY nor YANDEX_IAM_TOKEN is set")
-
-    @property
-    def exolve_auth_header(self) -> dict:
-        return {"Authorization": f"Bearer {self.exolve_api_key}"}
 
     @property
     def gpt_model_uri(self) -> str:

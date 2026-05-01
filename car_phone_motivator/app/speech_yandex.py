@@ -11,7 +11,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "oggopus") -> t
     """Return (recognized_text, latency_ms).
 
     audio_format: 'oggopus' | 'lpcm' | 'mp3'
-    For telephony (8 kHz LPCM) use format='lpcm'.
+    Voximplant recordings are OGG/Opus by default.
     """
     settings = get_settings()
     params = {
