@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Сравни и сэкономь — корзина</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --green: #16a34a;
+      --green-bg: #dcfce7;
+      --orange: #ea580c;
+      --orange-bg: #fff7ed;
+      --red: #dc2626;
+      --text: #1e293b;
+      --muted: #64748b;
+      --radius: 12px;
+      --shadow: 0 1px 4px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo { font-size: 20px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .logo span { color: var(--green); }
+
+    /* Mode toggle */
+    .mode-toggle {
+      display: flex;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .mode-btn {
+      padding: 6px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .mode-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      max-width: 1280px;
+      margin: 24px auto;
+      padding: 0 16px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      background: var(--accent-light);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    /* ── Search ── */
+    .search-wrap {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-input {
+      width: 100%;
+      padding: 9px 14px 9px 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.656a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z'/%3E%3C/svg%3E") no-repeat 12px center;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+
+    /* ── Category tabs ── */
+    .cats {
+      display: flex;
+      gap: 6px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .cats::-webkit-scrollbar { display: none; }
+    .cat-btn {
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .cat-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .cat-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Product list ── */
+    .product-list { max-height: 520px; overflow-y: auto; }
+    .product-row {
+      display: flex;
+      align-items: center;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      transition: background .1s;
+    }
+    .product-row:last-child { border-bottom: none; }
+    .product-row:hover { background: var(--bg); }
+    .product-name { flex: 1; font-size: 14px; }
+    .product-category { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .price-range { font-size: 13px; color: var(--muted); white-space: nowrap; text-align: right; }
+    .price-range strong { color: var(--green); }
+    .add-btn {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, transform .1s;
+      flex-shrink: 0;
+    }
+    .add-btn:hover { background: #1d4ed8; }
+    .add-btn:active { transform: scale(.92); }
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* ── Cart ── */
+    .cart-list { max-height: 340px; overflow-y: auto; }
+    .cart-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+    }
+    .cart-item:last-child { border-bottom: none; }
+    .cart-item-name { flex: 1; font-size: 13px; }
+    .qty-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .qty-btn {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text);
+      transition: all .1s;
+    }
+    .qty-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .qty-num { font-size: 14px; font-weight: 600; min-width: 20px; text-align: center; }
+    .remove-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 16px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: color .1s;
+    }
+    .remove-btn:hover { color: var(--red); }
+    .cart-empty {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .cart-footer {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .optimize-btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--green);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+    .optimize-btn:hover { background: #15803d; }
+    .optimize-btn:active { transform: scale(.98); }
+    .optimize-btn:disabled { background: var(--muted); cursor: not-allowed; transform: none; }
+
+    /* ── Results ── */
+    #results-section { margin-top: 0; }
+    .result-card {
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      background: var(--card);
+      border: 2px solid transparent;
+      transition: border-color .2s;
+    }
+    .result-card.best { border-color: var(--green); }
+    .result-header {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .result-header:hover { background: var(--bg); }
+    .best-tag {
+      background: var(--green);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .result-title { font-weight: 600; font-size: 15px; flex: 1; }
+    .result-total {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .savings-tag {
+      font-size: 12px;
+      color: var(--green);
+      font-weight: 600;
+    }
+    .chevron {
+      color: var(--muted);
+      transition: transform .2s;
+      font-size: 18px;
+    }
+    .chevron.open { transform: rotate(180deg); }
+
+    .result-body {
+      display: none;
+      padding: 0 20px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .result-body.open { display: block; }
+
+    .store-block { margin-top: 14px; }
+    .store-header-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .store-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .store-name-label { font-weight: 600; font-size: 14px; }
+    .delivery-info { font-size: 12px; color: var(--muted); margin-left: auto; }
+    .delivery-free { color: var(--green); font-weight: 600; }
+    .delivery-cost { color: var(--orange); font-weight: 600; }
+    .to-free-hint {
+      font-size: 11px;
+      color: var(--accent);
+      margin-top: 2px;
+      margin-left: 20px;
+    }
+
+    .items-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .items-table td { padding: 4px 6px; }
+    .items-table .td-name { color: var(--text); }
+    .items-table .td-qty { color: var(--muted); text-align: right; white-space: nowrap; }
+    .items-table .td-price { text-align: right; white-space: nowrap; font-weight: 500; }
+    .items-table .td-total { text-align: right; white-space: nowrap; font-weight: 600; }
+    .store-subtotal {
+      display: flex;
+      justify-content: flex-end;
+      gap: 16px;
+      font-size: 13px;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border);
+    }
+    .store-subtotal span { color: var(--muted); }
+    .store-subtotal strong { color: var(--text); }
+
+    .result-summary {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 2px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      text-align: center;
+    }
+    .summary-cell { }
+    .summary-cell .val { font-size: 17px; font-weight: 700; }
+    .summary-cell .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .summary-cell.highlight .val { color: var(--green); }
+
+    /* ── Missing products notice ── */
+    .missing-notice {
+      background: var(--orange-bg);
+      border: 1px solid #fed7aa;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--orange);
+      margin-bottom: 16px;
+    }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 3px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Stores info strip ── */
+    .stores-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .store-chip {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      background: var(--card);
+    }
+    .store-chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    .results-grid { display: flex; flex-direction: column; gap: 14px; }
+    #results-section .card-header { cursor: default; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">Сравни<span>&nbsp;и&nbsp;сэкономь</span></div>
+    <div style="flex:1"></div>
+    <div class="mode-toggle">
+      <button class="mode-btn active" data-mode="delivery" onclick="setMode('delivery', this)">🚚 Доставка</button>
+      <button class="mode-btn" data-mode="offline" onclick="setMode('offline', this)">🏪 Офлайн</button>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: catalogue -->
+  <div>
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-header">
+        🛍 Каталог товаров
+        <span class="badge" id="product-count">...</span>
+      </div>
+      <div class="stores-strip" id="stores-strip">
+        <span style="font-size:12px;color:var(--muted)">Загрузка магазинов…</span>
+      </div>
+      <div class="search-wrap">
+        <input class="search-input" id="search-input" type="text" placeholder="Поиск товара…" oninput="filterProducts()" />
+      </div>
+      <div class="cats" id="cats">
+        <button class="cat-btn active" onclick="selectCategory(null, this)">Все</button>
+      </div>
+      <div class="product-list" id="product-list">
+        <div class="empty-state">Загрузка каталога…</div>
+      </div>
+    </div>
+
+    <!-- Results appear here -->
+    <div id="results-section" style="display:none">
+      <div class="card-header" style="background:var(--card);border-radius:var(--radius) var(--radius) 0 0;border:none;padding:16px 20px 12px;font-size:16px">
+        📊 Результаты сравнения
+      </div>
+      <div id="missing-notice"></div>
+      <div class="results-grid" id="results-grid"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: cart -->
+  <div style="position:sticky;top:80px">
+    <div class="card">
+      <div class="card-header">
+        🛒 Корзина
+        <span class="badge" id="cart-count">0</span>
+      </div>
+      <div class="cart-list" id="cart-list">
+        <div class="cart-empty">Добавьте товары из каталога</div>
+      </div>
+      <div class="cart-footer">
+        <button class="optimize-btn" id="optimize-btn" onclick="runOptimize()" disabled>
+          Найти лучшую цену
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ──
+let allProducts = [];
+let storesData = [];
+let cart = {}; // product_id -> quantity
+let activeCategory = null;
+let currentMode = 'delivery';
+
+// ── Boot ──
+async function init() {
+  const [products, stores] = await Promise.all([
+    fetch('/api/products').then(r => r.json()),
+    fetch('/api/stores').then(r => r.json()),
+  ]);
+  allProducts = products;
+  storesData = stores;
+
+  renderStoresStrip(stores);
+  renderCategories();
+  renderProducts();
+}
+
+// ── Mode ──
+function setMode(mode, btn) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── Stores strip ──
+function renderStoresStrip(stores) {
+  const el = document.getElementById('stores-strip');
+  el.innerHTML = stores.map(s => `
+    <div class="store-chip">
+      <div class="store-chip-dot" style="background:${s.color}"></div>
+      ${s.name}
+      ${currentMode === 'delivery'
+        ? `<span style="color:var(--muted)">· дост. ${s.delivery_fee}₽, беспл. от ${s.free_delivery_from}₽</span>`
+        : ''}
+    </div>
+  `).join('');
+}
+
+// ── Categories ──
+function renderCategories() {
+  const cats = [];
+  allProducts.forEach(p => { if (!cats.includes(p.category)) cats.push(p.category); });
+  const wrap = document.getElementById('cats');
+  const existing = wrap.querySelector('.cat-btn');
+  wrap.innerHTML = '<button class="cat-btn active" onclick="selectCategory(null, this)">Все</button>'
+    + cats.map(c => `<button class="cat-btn" onclick="selectCategory('${c}', this)">${c}</button>`).join('');
+}
+
+function selectCategory(cat, btn) {
+  activeCategory = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderProducts();
+}
+
+// ── Products ──
+function filterProducts() { renderProducts(); }
+
+function getPriceRange(productId) {
+  const prices = Object.values(
+    Object.fromEntries(
+      Object.entries(
+        // We don't have prices on the front-end; we'll fetch a compact summary
+        // For now show a placeholder; the real prices are server-side.
+        // We'll embed price info via a data attribute from the server response.
+      )
+    )
+  );
+  return null;
+}
+
+function renderProducts() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  let filtered = allProducts;
+  if (q) filtered = filtered.filter(p => p.name.toLowerCase().includes(q));
+  if (activeCategory) filtered = filtered.filter(p => p.category === activeCategory);
+
+  document.getElementById('product-count').textContent = filtered.length;
+
+  const el = document.getElementById('product-list');
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="empty-state">Ничего не найдено</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(p => {
+    const inCart = cart[p.id] || 0;
+    return `
+      <div class="product-row" id="pr-${p.id}">
+        <div style="flex:1">
+          <div class="product-name">${p.name}</div>
+          <div class="product-category">${p.category} · за ${p.unit}</div>
+        </div>
+        ${inCart > 0 ? `<div class="qty-ctrl">
+          <button class="qty-btn" onclick="changeQty('${p.id}', -1)">−</button>
+          <span class="qty-num">${inCart}</span>
+          <button class="qty-btn" onclick="changeQty('${p.id}', 1)">+</button>
+        </div>` : `<button class="add-btn" onclick="addToCart('${p.id}')">+</button>`}
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Cart ──
+function addToCart(id) {
+  cart[id] = (cart[id] || 0) + 1;
+  refreshCart();
+  renderProducts();
+}
+
+function changeQty(id, delta) {
+  cart[id] = (cart[id] || 0) + delta;
+  if (cart[id] <= 0) delete cart[id];
+  refreshCart();
+  renderProducts();
+}
+
+function refreshCart() {
+  const ids = Object.keys(cart);
+  document.getElementById('cart-count').textContent = ids.length;
+  document.getElementById('optimize-btn').disabled = ids.length === 0;
+
+  const el = document.getElementById('cart-list');
+  if (ids.length === 0) {
+    el.innerHTML = '<div class="cart-empty">Добавьте товары из каталога</div>';
+    return;
+  }
+
+  el.innerHTML = ids.map(id => {
+    const p = allProducts.find(x => x.id === id);
+    if (!p) return '';
+    return `
+      <div class="cart-item">
+        <div class="cart-item-name">${p.name}</div>
+        <div class="qty-ctrl">
+          <button class="qty-btn" onclick="changeQty('${id}', -1)">−</button>
+          <span class="qty-num">${cart[id]}</span>
+          <button class="qty-btn" onclick="changeQty('${id}', 1)">+</button>
+        </div>
+        <button class="remove-btn" onclick="removeFromCart('${id}')" title="Удалить">✕</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function removeFromCart(id) {
+  delete cart[id];
+  refreshCart();
+  renderProducts();
+}
+
+// ── Optimize ──
+async function runOptimize() {
+  const btn = document.getElementById('optimize-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Считаем…';
+
+  const items = Object.entries(cart).map(([product_id, quantity]) => ({ product_id, quantity }));
+  const body = { items, mode: currentMode };
+
+  try {
+    const resp = await fetch('/api/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    renderResults(data);
+  } catch (e) {
+    alert('Ошибка при запросе: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Найти лучшую цену';
+  }
+}
+
+function renderResults(data) {
+  const section = document.getElementById('results-section');
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Missing products notice
+  const missingEl = document.getElementById('missing-notice');
+  if (data.missing_products && data.missing_products.length > 0) {
+    const names = data.missing_products.map(id => {
+      const p = allProducts.find(x => x.id === id);
+      return p ? p.name : id;
+    });
+    missingEl.innerHTML = `<div class="missing-notice">
+      ⚠️ Некоторые товары недоступны ни в одном магазине и исключены из расчёта:<br>
+      <strong>${names.join(', ')}</strong>
+    </div>`;
+  } else {
+    missingEl.innerHTML = '';
+  }
+
+  const grid = document.getElementById('results-grid');
+  if (!data.results || data.results.length === 0) {
+    grid.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--muted)">Нет результатов</div>';
+    return;
+  }
+
+  const worstCost = Math.max(...data.results.map(r => r.total_cost));
+
+  grid.innerHTML = data.results.map((r, idx) => {
+    const isOpen = idx === 0;
+    const isBest = r.is_best;
+    const savings = r.savings_vs_worst;
+
+    const storeBlocks = r.orders.map(o => {
+      const rows = o.items.map(item => `
+        <tr>
+          <td class="td-name">${item.product_name}</td>
+          <td class="td-qty">${item.quantity} ${getUnit(item.product_id)}</td>
+          <td class="td-price">${fmt(item.unit_price)}</td>
+          <td class="td-total">${fmt(item.line_total)}</td>
+        </tr>
+      `).join('');
+
+      const store = storesData.find(s => s.id === o.store_id) || {};
+      let deliveryHtml = '';
+      let toFreeHtml = '';
+      if (data.mode === 'delivery') {
+        if (o.delivery_fee === 0) {
+          deliveryHtml = `<span class="delivery-free">Бесплатная доставка</span>`;
+        } else {
+          deliveryHtml = `<span class="delivery-cost">Доставка: ${fmt(o.delivery_fee)}</span>`;
+          if (o.amount_to_free_delivery > 0) {
+            toFreeHtml = `<div class="to-free-hint">Добавьте товаров на ${fmt(o.amount_to_free_delivery)} — доставка будет бесплатной</div>`;
+          }
+        }
+      }
+
+      return `
+        <div class="store-block">
+          <div class="store-header-row">
+            <div class="store-dot" style="background:${store.color || '#888'}"></div>
+            <span class="store-name-label">${o.store_name}</span>
+            <div class="delivery-info">${deliveryHtml}</div>
+          </div>
+          ${toFreeHtml}
+          <table class="items-table">
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="store-subtotal">
+            <span>Товары</span><strong>${fmt(o.goods_subtotal)}</strong>
+            ${data.mode === 'delivery' ? `<span>Доставка</span><strong>${fmt(o.delivery_fee)}</strong>` : ''}
+            <span>Итого по магазину</span><strong>${fmt(o.store_total)}</strong>
+          </div>
+        </div>
+      `;
+    }).join('<hr style="border:none;border-top:1px solid var(--border);margin:10px 0">');
+
+    const deliveryLabel = data.mode === 'delivery' ? 'Доставка' : 'Офлайн';
+
+    return `
+      <div class="result-card ${isBest ? 'best' : ''}" id="rc-${idx}">
+        <div class="result-header" onclick="toggleResult(${idx})">
+          ${isBest ? '<span class="best-tag">Лучший вариант</span>' : ''}
+          <span class="result-title">${r.label}</span>
+          <div style="text-align:right">
+            <div class="result-total">${fmt(r.total_cost)}</div>
+            ${savings > 0 ? `<div class="savings-tag">экономия ${fmt(savings)}</div>` : ''}
+          </div>
+          <span class="chevron ${isOpen ? 'open' : ''}">⌄</span>
+        </div>
+        <div class="result-body ${isOpen ? 'open' : ''}" id="rb-${idx}">
+          ${storeBlocks}
+          <div class="result-summary">
+            <div class="summary-cell">
+              <div class="val">${fmt(r.goods_total)}</div>
+              <div class="lbl">Товары</div>
+            </div>
+            ${data.mode === 'delivery' ? `
+            <div class="summary-cell">
+              <div class="val">${fmt(r.delivery_total)}</div>
+              <div class="lbl">Доставка</div>
+            </div>` : `<div class="summary-cell"><div class="val">—</div><div class="lbl">Доставка</div></div>`}
+            <div class="summary-cell highlight">
+              <div class="val">${fmt(r.total_cost)}</div>
+              <div class="lbl">Итого</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleResult(idx) {
+  const body = document.getElementById('rb-' + idx);
+  const header = document.querySelector(`#rc-${idx} .result-header`);
+  const chevron = header.querySelector('.chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+function getUnit(productId) {
+  const p = allProducts.find(x => x.id === productId);
+  return p ? p.unit : '';
+}
+
+function fmt(n) {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(n);
+}
+
+init();
+</script>
+</body>
+</html>
