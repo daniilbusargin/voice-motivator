@@ -11,7 +11,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "oggopus") -> t
     """Return (recognized_text, latency_ms).
 
     audio_format: 'oggopus' | 'lpcm' | 'mp3'
-    For lpcm also pass sampleRateHertz param (8000 for telephony).
+    For telephony (8 kHz LPCM) use format='lpcm'.
     """
     settings = get_settings()
     params = {
@@ -29,7 +29,7 @@ async def speech_to_text(audio_bytes: bytes, audio_format: str = "oggopus") -> t
             content=audio_bytes,
             params=params,
             headers={
-                **settings.auth_header,
+                **settings.yandex_auth_header,
                 "Content-Type": "application/octet-stream",
             },
         )
@@ -58,7 +58,7 @@ async def text_to_speech(text: str) -> tuple[bytes, int]:
                 "format": "oggopus",
                 "folderId": settings.yandex_folder_id,
             },
-            headers=settings.auth_header,
+            headers=settings.yandex_auth_header,
         )
     latency_ms = int((time.monotonic() - t0) * 1000)
 

@@ -1,48 +1,88 @@
-"""Voximplant webhook event models and helper utilities.
+"""МТС Exolve telephony integration.
 
-Voximplant VoxEngine sends HTTP POST requests to our backend.
-The call flow is driven by the VoxEngine JS scenario (see voximplant_scenario.js).
+Call flow (webhook command-response pattern):
+  1. Exolve → POST /call/webhook  {EventType: "OnCallStart", ...}
+     Backend ← responds with PlayAudio(greeting) + StartRecord commands
+  2. Caller speaks; Exolve records audio.
+  3. Exolve → POST /call/webhook  {EventType: "OnRecordFinish", RecordURL: "..."}
+     Backend: downloads recording → STT → LLM → TTS → saves audio
+     Backend ← responds with PlayAudio(answer) + StartRecord commands
+  4. Repeat from step 2 until call ends.
+  5. Exolve → POST /call/webhook  {EventType: "OnCallFinish"}
+     Backend ← responds {"Commands": []}
 
-Incoming events we handle:
-  - call_started   : new inbound/outbound call connected
-  - audio_ready    : a recorded audio chunk URL is available
-  - call_ended     : call terminated
-
-Response format expected by VoxEngine:
-  JSON with field 'audio_url' pointing to the TTS audio file we want played.
+Official docs: https://exolve.ru/docs/
+All field names below match Exolve VoiceBot API v1.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel
 
 
-class VoxEvent(str, Enum):
-    CALL_STARTED = "call_started"
-    AUDIO_READY = "audio_ready"
-    CALL_ENDED = "call_ended"
+# ---------------------------------------------------------------------------
+# Exolve → Backend: incoming webhook payload
+# ---------------------------------------------------------------------------
+
+class ExolveEvent(str, Enum):
+    CALL_STARTED = "OnCallStart"
+    RECORD_FINISHED = "OnRecordFinish"
+    PLAY_FINISHED = "OnPlayFinish"
+    CALL_FINISHED = "OnCallFinish"
 
 
-class VoximplantWebhookPayload(BaseModel):
-    event: VoxEvent
-    call_id: str
-    audio_url: Optional[str] = None   # present on audio_ready
-    caller: Optional[str] = None
-    callee: Optional[str] = None
+class ExolveWebhookPayload(BaseModel):
+    """Subset of fields Exolve sends on every webhook event."""
+    CallSessionID: str
+    EventType: str
+    ApplicationID: Optional[str] = None
+    CallerID: Optional[str] = None    # caller phone number
+    CalleeID: Optional[str] = None    # dialled number
+    RecordURL: Optional[str] = None   # present on OnRecordFinish
+
+    model_config = {"extra": "allow"}  # tolerate unknown fields
 
 
-class VoximplantAudioPayload(BaseModel):
-    call_id: str
-    audio_url: Optional[str] = None   # URL where VX stored the recording
-    audio_format: Optional[str] = "oggopus"
+# ---------------------------------------------------------------------------
+# Backend → Exolve: response commands
+# ---------------------------------------------------------------------------
 
+def cmd_play(audio_url: str) -> dict:
+    return {"Command": "PlayAudio", "AudioURL": audio_url}
+
+
+def cmd_record(max_seconds: int = 10, silence_timeout: int = 2) -> dict:
+    return {
+        "Command": "StartRecord",
+        "MaxDuration": max_seconds,
+        "SilenceTimeout": silence_timeout,
+    }
+
+
+def cmd_say(text: str, voice: str = "male") -> dict:
+    """Use Exolve's built-in TTS (fallback when SpeechKit is unavailable)."""
+    return {"Command": "SayText", "Text": text, "Voice": voice}
+
+
+def cmd_hangup() -> dict:
+    return {"Command": "EndCall"}
+
+
+def exolve_response(*commands: dict) -> dict:
+    """Wrap commands list into the Exolve response envelope."""
+    return {"Commands": list(commands)}
+
+
+# ---------------------------------------------------------------------------
+# /call/respond models (provider-agnostic, used by internal endpoint)
+# ---------------------------------------------------------------------------
 
 class RespondRequest(BaseModel):
     call_id: str
-    text: str                          # pre-recognized text, skip STT
+    text: str
 
 
 class RespondResponse(BaseModel):
     call_id: str
     answer_text: str
-    audio_url: str                     # URL of the TTS audio to play
+    audio_url: str

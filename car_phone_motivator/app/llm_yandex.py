@@ -36,7 +36,10 @@ async def generate_answer(user_text: str) -> tuple[str, int]:
         resp = await client.post(
             YANDEX_GPT_URL,
             json=payload,
-            headers={**settings.auth_header, "x-folder-id": settings.yandex_folder_id},
+            headers={
+                **settings.yandex_auth_header,
+                "x-folder-id": settings.yandex_folder_id,
+            },
         )
     latency_ms = int((time.monotonic() - t0) * 1000)
 
